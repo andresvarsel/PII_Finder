@@ -2,10 +2,12 @@
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
+import spacy
+import en_core_web_sm
 
 import csv
 import docx
+import plum.exceptions
 from exif import Image
 import magic
 from openpyxl import load_workbook
@@ -24,6 +26,7 @@ class Hits:
         self.Hits_li_idNum = []
         self.Hits_li_cardNum = []
         self.Hits_li_gps = []
+        self.Hits_li_names = []
         self.Hits_li_num = ''
 
 # Variable for class Hits
@@ -49,6 +52,15 @@ def hits_to_csv():
     file.close()
 
 
+# Check if string has digit. Used to minimize false positives when finding names (PERSON labels).
+def has_digit(inp_str):
+    return any(char.isdigit() for char in inp_str)
+
+
+# Reduce false positives when searching for names (PERSON labels) with casy (nltk).
+def only_letter_and_hyphen():
+    to_match = r'^[æøåÆØÅa-zA-Z\s.-]+$'
+    return to_match
 
 # Encode string to utf-8
 def convert_to_bytes(x):
@@ -84,17 +96,41 @@ def re_cardNum_matcher():
     re_cardNum = [r'\b\d{4}\-\d{4}\-\d{4}\-\d{4}\b']
     return re_cardNum
 
-##### FIND OUT WHAT MAKES VALUE ERROR / ERROR WHEN OPENING SOME IMAGE FILES ###################
-# APPEND HITS TO LIST!
+# Find names with casy (nltk).
+def name_finder(text):
+    nlp = en_core_web_sm.load()
+    doc = nlp(text)
+    for x in doc.ents:
+        if x.label_ == 'PERSON':
+            if bool(re.match(only_letter_and_hyphen(), str(x))) == True:
+                hit = str(x)
+                Hits_.Hits_li_names.append(hit)
+
+
+
+        else:
+            pass
+
 def gps_coord(File_Name):
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
     lat = 'gps_latitude'
     lng = 'gps_longitude'
-    with open(file_name, 'rb') as img_file:
-        img = Image(img_file)
-        print(img.list_all())
+    # Errors are raised when using exif.Image on png files. See exception list.
+    try:
+        with open(file_name, 'rb') as img_file:
+            img = Image(img_file)
 
+            if img.has_exif:
+                if lat and lng in img.list_all():
+                    h_lat = img.gps_latitude
+                    h_lng = img.gps_longitude
+                    hit = "Lat:" + str(h_lat), "Long:" + str(h_lng), pathpath
+                    Hits_.Hits_li_gps.append(str(hit))
+            else:
+                pass
+    except (OSError, ValueError, plum.exceptions.UnpackError):
+        pass
 
 
 # Extract text etc from xlsx file to search for given values.
@@ -142,6 +178,8 @@ def xlsx_reader(File_Name):
                 hit = i + ', ' + pathpath
                 Hits_.Hits_li_cardNum.append(hit)
 
+    name_finder(text)
+
 # Extract hits from files of ftype: application/pdf
 def pdf_reader(File_Name):
 
@@ -158,8 +196,9 @@ def pdf_reader(File_Name):
         PageObj = object.getPage(i)
         # Extract text from pdf
         Text = PageObj.extractText()
+        name_finder(Text)
         Text = Text.casefold()
-
+        #name_finder(Text)
         # Call on function "matcher" which contain list of search items
         for i in key_matcher():
             # Use re to search for items in "matcher"
@@ -407,6 +446,12 @@ for hit in set(Hits_.Hits_li_cardNum):
 print()
 print("GPS Coordinates from Image files:")
 for hit in Hits_.Hits_li_gps:
+    print(hit)
+
+print()
+print("Names and plenty of false positives")
+print(len(Hits_.Hits_li_names))
+for hit in set(Hits_.Hits_li_names):
     print(hit)
 
 print()
