@@ -4,32 +4,30 @@ This program is created with the purpose of searching for PII (Personal Identifi
 Specifically email addresses, names of persons, personal id numbers, monetary card numbers.
 """
 
+__author__ = "Andre Sele"
 
 # --- IMPORT SECTION ---
 
+import csv
+import docx
+import magic
+import os
+import plum.exceptions
+import re
 import spacy
+import time
+
+from exif import Image
+from openpyxl import load_workbook
+from pdfminer.high_level import extract_text
 from spacy.language import Language
 from spacy_language_detection import LanguageDetector
+
 import en_core_web_md
 import nb_core_news_lg
 
-import nltk
-from nameparser.parser import HumanName
-from nltk.corpus import wordnet
-from pdfminer.high_level import extract_text
+#import PyPDF2 # remove after modification for pdfminer!
 
-import csv
-import docx
-import plum.exceptions
-from exif import Image
-import magic
-from openpyxl import load_workbook
-import os
-import PyPDF2 # remove after modification for pdfminer!
-import re
-import time
-
-from pdfminer.high_level import extract_text as et
 
 localtime = time.asctime(time.localtime(time.time()))
 utctime = time.asctime(time.gmtime(time.time()))
@@ -71,6 +69,33 @@ def hits_to_csv():
             hits = hits.split(',')
             writer.writerow({f'Match': {hits[0]}, 'Full_path': {hits[1]}})
     file.close()
+
+
+def get_lang_detector(nlp, name):
+    """
+    | Spacy LanguageDetector class
+    """
+    return LanguageDetector(seed=42)
+
+
+def state_language(text: str) -> str:
+    """
+    | Detects language of text strings.
+    | Return appropriate spaCy model.
+    """
+    nlp_model = spacy.load("en_core_web_sm")
+    Language.factory("language_detector", func=get_lang_detector)
+    nlp_model.add_pipe('language_detector', last=True)
+
+    doc = nlp_model(text)
+    language = doc._.language
+    id_lang = language.get('language')
+    if id_lang == 'no': # Norwegian
+        mod = 'nb_core_news_lg'
+    else:
+        mod = 'en_core_web_md'
+    print(mod)
+    return mod
 
 
 def has_digit(inp_str) -> bool:
@@ -146,37 +171,38 @@ def re_cardNum_matcher() -> list:
     return re_cardNum
 
 
-def name_finder(text):
+def name_finder(text): # INCLUDE PATH FOR MATCHES!
     """
     | Use spaCy to find human names.
-    :param text: text from files.
     """
-    nlp = spacy.load("en_core_web_sm")
+
+    nlp = spacy.load(state_language(text))
+    doc = nlp(text)
     #nlp = spacy.load("nb_core_news_sm")
 
-    name_li = []
+    #name_li = []
 
-    with open("data/NameList.txt", "r") as f:
-        lines = f.readlines()
-        for line in lines:
-            name_li.append(line)
+    #with open("data/NameList.txt", "r") as f:
+    #    lines = f.readlines()
+    #    for line in lines:
+    #        name_li.append(line)
 
-    ruler = nlp.add_pipe("entity_ruler", after="ner")
+    #ruler = nlp.add_pipe("entity_ruler", after="ner")
 
-    name_li = [item.strip() for item in name_li]
+    #name_li = [item.strip() for item in name_li]
 
-    patterns = []
-    for name in name_li:
-        pattern = {"label": "PERSON", "pattern": name}
-        patterns.append(pattern)
+    #patterns = []
+    #for name in name_li:
+    #    pattern = {"label": "PERSON", "pattern": name}
+    #    patterns.append(pattern)
 
     per_li = []
-    ruler.add_patterns(patterns)
-    doc = nlp(text)
+    #ruler.add_patterns(patterns)
+    #doc = nlp(text)
 
     for ent in doc.ents:
-        if ent.label_ == "PERSON" and bool(re.search(only_letter_and_hyphen(), str(ent))) == True\
-                and len(str(ent)) > 3:
+        if ent.label_ == "PERSON" or ent.label_== 'PER':#and bool(re.search(only_letter_and_hyphen(), str(ent))) == True\
+                #and len(str(ent)) > 3:
             per_li.append(ent)
 
     # print(len(set(per_li)))
@@ -187,6 +213,7 @@ def name_finder(text):
         Hits_.Hits_li_names.append(i)
     #print(per_li)
     # print(len(set(per_li)))
+
 
 '''
 # Find names with spacy (nltk).
@@ -287,7 +314,7 @@ def xlsx_reader(File_Name):
                 i = str(info.value)
                 info_li.append(i)
     text = ' '.join(info_li)
-    #name_finder(text)
+    name_finder(text)
 
     for i in key_matcher():
         if i in info_li:
@@ -394,6 +421,7 @@ def pdf_reader(File_Name):
 def pdf_reader(file_name):
     pdf = file_name
     text = extract_text(pdf)
+    name_finder(text)
 
 # Extract hits from files of ftype: application/vnd.openxmlformats-officedocument.wordprocessingml.document
 def docx_reader(File_Name):
