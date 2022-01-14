@@ -6,7 +6,7 @@ This script can be used to search for and to identify different types of PII (Pe
 
 So far the script includes capabilities to find:
 - Email addresses.
-- Personal identification such as SSN, Taxnumber, etc. (Nordic countries, UK, US).
+- Personal identification such as SSN, Taxnumber, etc. (Nordic countries, Poland, UK, US).
 - Keywords.
 - Monetary card numbers of format: ####-####-####-####
 - GPS coordinates.
