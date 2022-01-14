@@ -10,4 +10,4 @@ So far the script includes capabilities to find:
 - Keywords.
 - Monetary card numbers of format: ####-####-####-####
 - GPS coordinates.
-
+- Entities with focus on "PERSON", "PER" (human names).
