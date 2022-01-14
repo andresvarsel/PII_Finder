@@ -4,6 +4,7 @@ This program is created with the purpose of searching for PII (Personal Identifi
 Specifically email addresses, names of persons, personal id numbers, monetary card numbers.
 """
 
+__author__ = 'Andre Sele'
 
 # --- IMPORT SECTION ---
 
