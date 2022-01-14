@@ -1,9 +1,22 @@
-# This is a sample Python script.
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+"""
+This program is created with the purpose of searching for PII (Personal Identifiable Information).
+Specifically email addresses, names of persons, personal id numbers, monetary card numbers.
+"""
+
+
+# --- IMPORT SECTION ---
+
 import spacy
-import en_core_web_sm
+from spacy.language import Language
+from spacy_language_detection import LanguageDetector
+import en_core_web_md
+import nb_core_news_lg
+
+import nltk
+from nameparser.parser import HumanName
+from nltk.corpus import wordnet
+from pdfminer.high_level import extract_text
 
 import csv
 import docx
@@ -12,14 +25,19 @@ from exif import Image
 import magic
 from openpyxl import load_workbook
 import os
-import PyPDF2
+import PyPDF2 # remove after modification for pdfminer!
 import re
 import time
+
+from pdfminer.high_level import extract_text as et
 
 localtime = time.asctime(time.localtime(time.time()))
 utctime = time.asctime(time.gmtime(time.time()))
 # Class to hold all hits (matches for search criteria).
 class Hits:
+    """
+    | Class variables for hits.
+    """
     def __init__(self):
         self.Hits_li_key = []
         self.Hits_li_email = []
@@ -29,12 +47,15 @@ class Hits:
         self.Hits_li_names = []
         self.Hits_li_num = ''
 
-# Variable for class Hits
+# Variable for accessing class Hits
 Hits_ = Hits()
 
 # Must be re-written for all instance variables.
 # Write hits to csv file
 def hits_to_csv():
+    """
+    | Write search results to csv file.
+    """
     time_desc = "UTC Time: "
     time = utctime
     with open('E:\hits.csv', 'w+', newline='') as file:
@@ -52,24 +73,45 @@ def hits_to_csv():
     file.close()
 
 
-# Check if string has digit. Used to minimize false positives when finding names (PERSON labels).
-def has_digit(inp_str):
+def has_digit(inp_str) -> bool:
+    """
+    | Return True if string has digit.
+    """
     return any(char.isdigit() for char in inp_str)
 
 
-# Reduce false positives when searching for names (PERSON labels) with casy (nltk).
-def only_letter_and_hyphen():
-    to_match = r'^[æøåÆØÅa-zA-Z\s.-]+$'
+def only_letter_and_hyphen() -> str:
+    """
+    | Check that string contain letters and hyphen only.
+    | Allow string of length 2-26.
+    """
+    to_match = r'^[æøåÆØÅa-zA-Z\s.-]{2,26}$'
     return to_match
 
-# Encode string to utf-8
-def convert_to_bytes(x):
+
+def decrease_false_pos() -> list:
+    """
+    | Attempt at reducing false positives by
+    | specifying patterns for human names.
+    """
+    patterns = [r'^[æøåÆØÅa-zA-Z]+$', r'^[æøåÆØÅa-zA-Z.]+[\s-][æøåÆØÅa-zA-Z.]+$', r'^[æøåÆØÅa-zA-Z]{2,10}[\s-]{1}[æøåÆØÅa-zA-Z.]{1,10}[\s-]{1}[æøåÆØÅa-zA-Z.]{1,10}$']
+    return patterns
+
+
+def convert_to_bytes(x: str) -> bytes:
+    """
+    | Convert input string to bytes
+    """
     x = x.encode('utf-8')
     return x
 
 
-# Lists of keywords to search for.
-def key_matcher():
+def key_matcher() -> list:
+    """
+    | Keywords for search.
+    | List of keywords is converted to
+    | lower-case before return.
+    """
     keyword_li = ['Horse', 'exception', 'andre sele', 'problem', 'OLaV', 'eTTeRnavneNe', 'johansen', 'PNg', 'ÅDne']
     lower_li = []
     for i in keyword_li:
@@ -77,41 +119,133 @@ def key_matcher():
     return lower_li
 
 
-# Lists of regex to search for.
-def re_mail_matcher():
-    # Email address regex with æøå.
+def re_mail_matcher() -> str:
+    """
+    | For email address search.
+    | Regular expression for email addresses.
+    """
     re_mail = [r'[æøåÆØÅa-zA-Z0-9+._-]+@[æøåÆØÅa-zA-Z0-9._-]+\.[æøåÆØÅa-zA-Z0-9_-]+']
     return re_mail
 
 
-def re_idNum_matcher():
-    # ID num regex (Norway, Poland, UK, US, Iceland, Denmark, Sweden, Finland).
+def re_idNum_matcher() -> list:
+    """
+    | List of regular expressions for personal id numbers.
+    | Match standard format for Nordic countries, Poland, UK, US.
+    """
     re_idNum = [r'\b\d{11}\b',
                 r'\b[a-ceghj-npr-tw-zA-CEGHJ-PR-TW-Z]{2}(?:\d){6}[a-dA-D]?\b',
                 r'\b\d{3}\-\d{2}\-\d{4}\b', r'\b\d{11}\d', r'\b\d{6}\-\d{4}\b', r'\b\d{6}\-\d{3}[a-zA-Z]\b']
     return re_idNum
 
-def re_cardNum_matcher():
-    # Regex for standard monetary card number format.
-    re_cardNum = [r'\b\d{4}\-\d{4}\-\d{4}\-\d{4}\b']
+def re_cardNum_matcher() -> list:
+    """
+    | Regex for standard monetary card number format.
+    """
+    re_cardNum = [r'\b\d{4}\-\d{4}\-\d{4}\-\d{4}\b'] # include more!
     return re_cardNum
 
-# Find names with casy (nltk).
+
 def name_finder(text):
-    nlp = en_core_web_sm.load()
+    """
+    | Use spaCy to find human names.
+    :param text: text from files.
+    """
+    nlp = spacy.load("en_core_web_sm")
+    #nlp = spacy.load("nb_core_news_sm")
+
+    name_li = []
+
+    with open("data/NameList.txt", "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            name_li.append(line)
+
+    ruler = nlp.add_pipe("entity_ruler", after="ner")
+
+    name_li = [item.strip() for item in name_li]
+
+    patterns = []
+    for name in name_li:
+        pattern = {"label": "PERSON", "pattern": name}
+        patterns.append(pattern)
+
+    per_li = []
+    ruler.add_patterns(patterns)
     doc = nlp(text)
-    for x in doc.ents:
-        if x.label_ == 'PERSON':
-            if bool(re.match(only_letter_and_hyphen(), str(x))) == True:
-                hit = str(x)
-                Hits_.Hits_li_names.append(hit)
+
+    for ent in doc.ents:
+        if ent.label_ == "PERSON" and bool(re.search(only_letter_and_hyphen(), str(ent))) == True\
+                and len(str(ent)) > 3:
+            per_li.append(ent)
+
+    # print(len(set(per_li)))
+    per_li = [str(item) for item in per_li]
+    per_li = list(set(per_li))
+    per_li = sorted(per_li)
+    for i in per_li:
+        Hits_.Hits_li_names.append(i)
+    #print(per_li)
+    # print(len(set(per_li)))
+
+'''
+# Find names with spacy (nltk).
+def name_finder(text):
+    names = []
+    #one_name = r'^[æøåÆØÅa-zA-Z]{2,14}$'
+    #two_names = r'^[æøåÆØÅa-zA-Z.]+[\s-][æøåÆØÅa-zA-Z.]+$'
+    #three_names = r'^[æøåÆØÅa-zA-Z]{2,10}[\s-]{1}[æøåÆØÅa-zA-Z.]{1,10}[\s-]{1}[æøåÆØÅa-zA-Z.]{1,10}$'
+    #regex_list = [one_name, two_names, three_names]
+    nlp = spacy.load("en_core_web_sm")
+    with open("data/NameList.txt", "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            names.append(line)
+    names = [item.strip() for item in names]
+    ruler = nlp.add_pipe("entity_ruler", after="ner")
+    patterns = []
+    for name in names:
+        pattern = {"label": "PERSON", "pattern": name}
+        patterns.append(pattern)
+    ruler.add_patterns(patterns)
+    doc = nlp(text)
+    #per_li = []
+    for ent in doc.ents:
+        if ent.label == "PERSON":
+            Hits_.Hits_li_names.append(ent)
+    #per_li = [str(item) for item in per_li]
+    #per_li = list(set(per_li))
+    #per_li = sorted(per_li)
+    #for i in per_li:
+
+        #Hits_.Hits_li_names.append(i)
+
+    #doc = nlp(text)
+    #for x in doc.ents:
+    #    #if x.label_ == 'PERSON' and bool(re.search(only_letter_and_hyphen(), str(x))) == True:
+    #    for y in decrease_false_pos():
+    #        if x.label_ == 'PERSON':
+    #            hit = str(x)
+    #            for regex in regex_list:
+    #                res = re.findall(regex, hit)
+    #                if res:
+    #                    for r in res:
+    #                        Hits_.Hits_li_names.append(r)
+
+            #if bool(re.match(only_letter_and_hyphen(), str(x))) == True:
+            #hit = str(x)
+            #Hits_.Hits_li_names.append(hit)
 
 
 
         else:
             pass
-
+'''
+# EXPAND TO INCLUDE TIME AND DATE OF CREATION!
 def gps_coord(File_Name):
+    """
+    | Check for gps coordinates in image files.
+    """
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
     lat = 'gps_latitude'
@@ -135,6 +269,9 @@ def gps_coord(File_Name):
 
 # Extract text etc from xlsx file to search for given values.
 def xlsx_reader(File_Name):
+    """
+    | Extract text from excel files for search/match process.
+    """
     info_li = []
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
@@ -150,7 +287,7 @@ def xlsx_reader(File_Name):
                 i = str(info.value)
                 info_li.append(i)
     text = ' '.join(info_li)
-
+    #name_finder(text)
 
     for i in key_matcher():
         if i in info_li:
@@ -178,12 +315,14 @@ def xlsx_reader(File_Name):
                 hit = i + ', ' + pathpath
                 Hits_.Hits_li_cardNum.append(hit)
 
-    name_finder(text)
 
+# USE PDF MINER INSTEAD!!!!!!!!!!!!!
 # Extract hits from files of ftype: application/pdf
+'''
 def pdf_reader(File_Name):
 
     file_name = File_Name
+    Text = et(file_name)
 
     # open the pdf file
     object = PyPDF2.PdfFileReader(file_name)
@@ -196,7 +335,7 @@ def pdf_reader(File_Name):
         PageObj = object.getPage(i)
         # Extract text from pdf
         Text = PageObj.extractText()
-        name_finder(Text)
+        #name_finder(str(Text))
         Text = Text.casefold()
         #name_finder(Text)
         # Call on function "matcher" which contain list of search items
@@ -250,9 +389,17 @@ def pdf_reader(File_Name):
                 for i in res:
                     hit = i + ', ' + pathpath
                     Hits_.Hits_li_cardNum.append(hit)
+'''
+
+def pdf_reader(file_name):
+    pdf = file_name
+    text = extract_text(pdf)
 
 # Extract hits from files of ftype: application/vnd.openxmlformats-officedocument.wordprocessingml.document
 def docx_reader(File_Name):
+    """
+    | Extract text from docx files for search/match process.
+    """
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
     doc = docx.Document(file_name)
@@ -260,6 +407,7 @@ def docx_reader(File_Name):
     for para in doc.paragraphs:
         Text.append(para.text)
     Text = '\n'.join(Text)
+    #name_finder(Text)
     Text = Text.casefold()
     #print(Text)
     for i in key_matcher():
@@ -311,12 +459,17 @@ def docx_reader(File_Name):
 
 # Read files and adds matches to match_li
 def read_file(File_Name):
+    """
+    | Standard file opener and reader.
+    | Open and read files in byte-form (mode=rb).
+    """
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
     match_li = []
 
     f = open(file_name, mode='rb')
     t = f.read()
+
 
     # Search for keyword matches in t
     for i in key_matcher():
@@ -358,7 +511,7 @@ def read_file(File_Name):
         res = re.findall(i, t, re.IGNORECASE)
         if res:
             for i in res:
-                hit = i + ', ' + pathpath
+                hit = i.decode() + ', ' + pathpath
                 Hits_.Hits_li_cardNum.append(hit)
 
     f.close()
@@ -366,6 +519,9 @@ def read_file(File_Name):
 
 # Iterates through directories
 def walker(Directory):
+    """
+    | Walks directories and subdirectories to execute search.
+    """
     directory = Directory
     count = 0
     print("List of matching strings, and absolute file-path:")
@@ -451,7 +607,7 @@ for hit in Hits_.Hits_li_gps:
 print()
 print("Names and plenty of false positives")
 print(len(Hits_.Hits_li_names))
-for hit in set(Hits_.Hits_li_names):
+for hit in Hits_.Hits_li_names:
     print(hit)
 
 print()
