@@ -9,6 +9,8 @@ __author__ = "Andre Sele"
 # --- IMPORT SECTION ---
 
 import csv
+import sqlite3
+
 import docx
 import magic
 import os
@@ -171,7 +173,7 @@ def re_cardNum_matcher() -> list:
     return re_cardNum
 
 
-def name_finder(text): # INCLUDE PATH FOR MATCHES!
+def name_finder(text, path): # INCLUDE PATH FOR MATCHES!
     """
     | Use spaCy to find human names.
     """
@@ -210,7 +212,7 @@ def name_finder(text): # INCLUDE PATH FOR MATCHES!
     per_li = list(set(per_li))
     per_li = sorted(per_li)
     for i in per_li:
-        Hits_.Hits_li_names.append(i)
+        Hits_.Hits_li_names.append(i + ', ' + path)
     #print(per_li)
     # print(len(set(per_li)))
 
@@ -314,7 +316,7 @@ def xlsx_reader(File_Name):
                 i = str(info.value)
                 info_li.append(i)
     text = ' '.join(info_li)
-    name_finder(text)
+    name_finder(text, pathpath)
 
     for i in key_matcher():
         if i in info_li:
@@ -419,9 +421,67 @@ def pdf_reader(File_Name):
 '''
 
 def pdf_reader(file_name):
+    pathpath = os.path.normpath(file_name)
     pdf = file_name
-    text = extract_text(pdf)
-    name_finder(text)
+    Text = extract_text(pdf)
+    name_finder(Text, pathpath)
+
+    for i in key_matcher():
+        # Use re to search for items in "matcher"
+        ResSearch = re.findall(i.casefold(), Text.casefold())  # case insensitive match!
+        # print(ResSearch)
+
+        # If matches are found
+        if ResSearch:
+            # Insert matches into match_li
+            hit = i + ', ' + pathpath
+            # print("This is hit", hit)
+            # print(f'Match for string:"{i}", Path = {pathpath}')
+            Hits_.Hits_li_key.append(hit)
+
+        else:
+            continue
+
+    for i in re_mail_matcher():
+        #
+
+        ResSearch = re.findall(i.casefold(), Text.casefold())  # make case insensitive
+
+        if ResSearch:
+            for i in ResSearch:
+                hit = i + ', ' + pathpath
+                Hits_.Hits_li_email.append(hit)
+
+            #re_hit = ''.join(ResSearch), pathpath
+
+            # .group(0)
+            # print(re_hit)
+            # print(ResSearch.group(0))
+            # match_li.append(i + '---' + pathpath)
+
+            #Hits_.Hits_li_email.append(re_hit)
+
+            # print(type(i))
+            # print(f'Match for string:"{i}", Path = {pathpath}')
+
+
+        else:
+            # print(f'No match for the word: {i}')
+            continue
+
+    for i in re_idNum_matcher():
+        res = re.findall(i, Text)
+        if res:
+            for i in res:
+                hit = i + ', ' + pathpath
+                Hits_.Hits_li_idNum.append(hit)
+
+    for i in re_cardNum_matcher():
+        res = re.findall(i, Text)
+        if res:
+            for i in res:
+                hit = i + ', ' + pathpath
+                Hits_.Hits_li_cardNum.append(hit)
 
 # Extract hits from files of ftype: application/vnd.openxmlformats-officedocument.wordprocessingml.document
 def docx_reader(File_Name):
@@ -435,7 +495,7 @@ def docx_reader(File_Name):
     for para in doc.paragraphs:
         Text.append(para.text)
     Text = '\n'.join(Text)
-    #name_finder(Text)
+    name_finder(Text, pathpath)
     Text = Text.casefold()
     #print(Text)
     for i in key_matcher():
@@ -485,6 +545,72 @@ def docx_reader(File_Name):
                 hit = i + ', ' + pathpath
                 Hits_.Hits_li_cardNum.append(hit)
 
+#THIS WILL CHECK ALL TABLE NAMES AND READ ROWS FROM ALL TABLES!!!
+def db_reader(File_Name):
+    """
+    | Connect to and read rows of database tables.
+
+    """
+    file_name = File_Name
+    pathpath = os.path.normpath(file_name)
+
+    # connect to db
+    with sqlite3.connect(file_name) as connection:
+        c = connection.cursor()
+        for tables in c.execute("SELECT name FROM sqlite_master WHERE type='table';"):
+            for table in tables:
+                c.execute(f"SELECT * FROM {table}")
+                Text = c.fetchall()
+                Text = str(Text)
+                name_finder(Text, pathpath)
+                for i in key_matcher():
+
+                    ResSearch = re.findall(i, Text)
+                    # match_li = []
+                    if ResSearch:
+
+                        # Insert matches into match_li
+                        Hits_.Hits_li_key.append(str(i) + ", " + pathpath)
+                        continue
+
+                    else:
+                        # print(f'No match for the word: {i}')
+                        continue
+
+                for i in re_mail_matcher():
+
+                    # print(i)
+                    # print(type(i))
+                    res = re.findall(i, Text)
+                    if res:
+                        for i in res:
+                            Hits_.Hits_li_email.append(i + ", " + pathpath)
+                        # Insert matches into match_li
+                        # Hits_.Hits_li.append(str(i) + ", " + pathpath)
+                        # continue
+
+                    else:
+                        # print(f'No match for the word: {i}')
+                        continue
+
+                for i in re_idNum_matcher():
+                    res = re.findall(i, Text)
+                    if res:
+                        for i in res:
+                            hit = i + ', ' + pathpath
+                            Hits_.Hits_li_idNum.append(hit)
+
+                for i in re_cardNum_matcher():
+                    res = re.findall(i, Text)
+                    if res:
+                        for i in res:
+                            hit = i + ', ' + pathpath
+                            Hits_.Hits_li_cardNum.append(hit)
+
+
+
+
+
 # Read files and adds matches to match_li
 def read_file(File_Name):
     """
@@ -494,9 +620,13 @@ def read_file(File_Name):
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
     match_li = []
-
+    fn = open(file_name, mode='r')
+    tn = fn.read()
+    name_finder(tn, pathpath)
+    fn.close()
     f = open(file_name, mode='rb')
     t = f.read()
+
 
 
     # Search for keyword matches in t
@@ -579,6 +709,8 @@ def walker(Directory):
                 xlsx_reader(paths)
             elif ftype[:5] == 'image':
                 gps_coord(paths)
+            elif ftype == 'application/x-sqlite3':
+                db_reader(paths)
 
             else:
                 read_file(paths)
@@ -596,7 +728,7 @@ def walker(Directory):
 start = time.time()
 
 if __name__ == "__main__":
-    walker('E:\Iter_open_test')  # Enter drive/directory to search here!!!
+    walker('E:\Iter_open_test\Atesting')  # Enter drive/directory to search here!!!
 
 
 #hits_to_csv()
@@ -617,6 +749,7 @@ print('Emails:')
 for hit in set(Hits_.Hits_li_email):
     print(hit)
 
+
 print()
 print('ID Numbers:')
 for hit in set(Hits_.Hits_li_idNum):
@@ -633,7 +766,7 @@ for hit in Hits_.Hits_li_gps:
     print(hit)
 
 print()
-print("Names and plenty of false positives")
+print("Names")
 print(len(Hits_.Hits_li_names))
 for hit in Hits_.Hits_li_names:
     print(hit)
