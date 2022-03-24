@@ -8,7 +8,6 @@ __author__ = "Andre Sele"
 
 # --- IMPORT SECTION ---
 # Dependencies
-import csv
 import sqlite3
 import docx
 import magic
@@ -16,10 +15,12 @@ import os
 import plum.exceptions
 import re
 import spacy
+import threading
 from tkinter import *
-from tkinter.filedialog import asksaveasfile
+from tkinter.filedialog import asksaveasfile, askdirectory
+from tkinter import ttk
 import time
-from yaspin import yaspin
+#from yaspin import yaspin
 
 from exif import Image
 from openpyxl import load_workbook
@@ -47,33 +48,54 @@ class Hits:
         self.Hits_li_gps = []
         self.Hits_li_names = []
         self.Hits_li_num = ''
+        self.Time_used = ""
+
 
 # Variable for accessing class Hits
 Hits_ = Hits()
+exit_event = threading.Event() # For killing progress bar Thread (p2)
 
-# Must be re-written for all instance variables.
-# Write hits to csv file
-def hits_to_csv():
-    """
-    | Write search results to csv file.
-    """
-    time_desc = "UTC Time: "
-    time = utctime
-    with open('E:\hits.csv', 'w+', newline='') as file:
-        columns = ['Match', 'Full_path']
-        writer = csv.DictWriter(file, fieldnames=columns)
 
-        writer.writeheader()
-        writer.writerow({'Match': '', 'Full_path': ''})
-        writer.writerow({f'Match': {time_desc}, 'Full_path': {time}})
-        writer.writerow({'Match': '', 'Full_path': ''})
-        for hits in set(Hits_.Hits_li):
-            hits = str(hits)
-            hits = hits.split(',')
-            writer.writerow({f'Match': {hits[0]}, 'Full_path': {hits[1]}})
-    file.close()
+def select_dir() -> str:
+    """
+    | Tkinter widget for selecting directory to process.
+    """
+    win = Tk()
+    win.withdraw()
+    selected_dir = askdirectory(title="****** SELECT DIRECTORY TO PROCESS ******")
+    win.destroy()
+    return selected_dir
+
+
+
+def progress_widget():
+    """
+    | Tkninter widget for progress bar.
+    | Indicate app is processing (indeterminate mode).
+    """
+    while True:
+        global win
+        win = Tk()
+        label = Label(win, text="Searching for PII", font="50")
+        label.pack(pady=5)
+
+        progbar = ttk.Progressbar(win, orient=HORIZONTAL, length=220, mode="indeterminate")
+        progbar.pack(pady=20)
+        win.geometry('300x150')
+        win.title("PII_Finder")
+
+        progbar.start()
+        if exit_event.is_set():
+            break
+
+        win.mainloop()
+
 
 def hits_to_file():
+    """
+    | Tkinter window
+    | creates Tkinter window, button, label.
+    """
     # Create an instance of tkinter window
     win = Tk()
 
@@ -96,8 +118,10 @@ def hits_to_file():
         raw_sf = r'{}'.format(sf)
         win.destroy()
 
+        # Write to file
         with open(raw_sf, 'a') as file:
-            file.write('\n'+"Local current time: "+localtime+'\n'+"UTC current time: "+utctime+'\n')
+            file.write('\n'+"Local time of creation: "+localtime+'\n'+"UTC time of creation: "+utctime+'\n')
+            file.write('\n' + Hits_.Time_used + '\n')
             file.write('\n'+'EMAIL ADDRESSES:'+'\n')
             for res in Hits_.Hits_li_email:
                 file.write(res+'\n')
@@ -125,6 +149,7 @@ def hits_to_file():
     btn.pack(pady=10)
 
     win.mainloop()
+
 
 def get_lang_detector(nlp, name):
     """
@@ -443,11 +468,10 @@ def docx_reader(File_Name):
         else:
             continue
 
-#THIS WILL CHECK ALL TABLE NAMES AND READ ROWS FROM ALL TABLES!!!
+
 def db_reader(File_Name):
     """
     | Connect to and read rows of database tables.
-
     """
     file_name = File_Name
     pathpath = os.path.normpath(file_name)
@@ -497,10 +521,6 @@ def db_reader(File_Name):
                         continue
 
 
-
-
-
-# Read files and adds matches to match_li
 def read_file(File_Name):
     """
     | Standard file opener and reader.
@@ -516,15 +536,12 @@ def read_file(File_Name):
     f = open(file_name, mode='rb')
     t = f.read()
 
-
-
     # Search for keyword matches in t
     for i in key_matcher():
         # Add to match_li if match is found
         if convert_to_bytes(i) in t.lower():  # case sensitivity!!!
             Hits_.Hits_li_key.append(str(i) + ", " + pathpath)
             # print(i + " --- " + pathpath)
-
         else:
             continue
 
@@ -536,9 +553,7 @@ def read_file(File_Name):
         # print(i, "is match for:", str(res), pathpath)
         if res:
             # print(res)
-
             for i in res:
-
                 Hits_.Hits_li_email.append(str(i) + ", " + pathpath)
                 # add_hit_to_li(str(i) + " !!! " + pathpath)
         else:
@@ -564,30 +579,26 @@ def read_file(File_Name):
     f.close()
 
 
-# Iterates through directories
-def walker(Directory):
+p1 = threading.Thread(target=progress_widget) # Progress bar widget.
+
+
+def walker():
     """
     | Walks directories and subdirectories to execute search.
     """
-    directory = Directory
-    count = 0
+    directory = select_dir() # see select_dir() function.
+    p1.daemon = True  # Allows python to exit even if thread is still running.
+    p1.start()  # Starting Progress bar.
 
-    print()
 
+    #count = 0
     for subdir, dirs, files in os.walk(directory):
         for file in files:
             # File-path from os
             paths = os.path.join(subdir, file)
             ftype = magic.from_file(paths, mime=True)
-            count += 1
+
             # print(paths, ftype)
-            # if "pdf" in ftype:
-            #    pdf_reader(paths)
-
-            # else:
-            #    continue
-            # Counts number of files processed
-
             if "pdf" in ftype:
                 pdf_reader(paths)
             elif ftype == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
@@ -602,87 +613,73 @@ def walker(Directory):
             else:
                 read_file(paths)
 
+    #file_num = count
+    #Hits_.Hits_li_num = file_num
 
 
+p2 = threading.Thread(target=walker) # Directory walker (main function).
 
 
-    print()
-    file_num = count
-    Hits_.Hits_li_num = file_num
+def main():
+    p2.start() # Starting main function.
+    p2.join() # Allows main function to finish before continuing to "exit_event.set()".
+    exit_event.set() # Sets exit_event to True in attempt at breaking loop of Progress bar.
+    win.withdraw() # Hides progress bar widget window.
+    hits_to_file() # Select path and save output.
 
 
+# Starts script/program
+if __name__ == '__main__':
+    main()
 
+'''
 start = time.time()
-
-
 spinner = yaspin(text='Processing', color="yellow")
 spinner.start()
-
-if __name__ == "__main__":
-    walker('E:\Iter_open_test\Atesting')  # Enter drive/directory to search here!!!
-
-spinner.stop()
+#spinner.stop()
 print('Process Finished')
 stop = time.time()
 process_time = round(stop - start, 2)
-
-hits_to_file()
-#hits_to_csv()
-
 print("Number of files searched:", Hits_.Hits_li_num)
 #print("Number of Hits: ", len(set(Hits_.Hits_li_email))
 print()
 print("Hit List: ")
 print()
-
 print('Keywords:')
 print()
 for hit in set(Hits_.Hits_li_key):
     print(hit)
 print()
 print('Emails:')
-
 for hit in set(Hits_.Hits_li_email):
     print(hit)
-
-
 print()
 print('ID Numbers:')
 for hit in set(Hits_.Hits_li_idNum):
     print(hit)
-
 print()
 print("Card Numbers:")
 for hit in set(Hits_.Hits_li_cardNum):
     print(hit)
-
 print()
 print("GPS Coordinates from Image files:")
 for hit in Hits_.Hits_li_gps:
     print(hit)
-
 print()
 print("Names")
 print(len(Hits_.Hits_li_names))
 for hit in Hits_.Hits_li_names:
     print(hit)
-
 print()
-
-
 # Print time used in seconds or minutes
 if process_time > 60:
     process_time /= 60
     print("Minutes used: ", process_time)
 else:
     print("Seconds used: ", process_time)
-
-
-print("Local current time :", localtime)
-
-print("UTC current time   :", utctime)
-
-
+print("Local time of creation: ", localtime)
+print("UTC time of creation: ", utctime)
+'''
 
 
 
