@@ -2,6 +2,7 @@
 """
 This program is created with the purpose of searching for PII (Personal Identifiable Information).
 Specifically email addresses, names of persons, personal id numbers, monetary card numbers.
+Location data found in image files is also extracted.
 """
 
 __author__ = "Andre Sele"
@@ -20,7 +21,6 @@ from tkinter import *
 from tkinter.filedialog import asksaveasfile, askdirectory
 from tkinter import ttk
 import time
-#from yaspin import yaspin
 
 from exif import Image
 from openpyxl import load_workbook
@@ -28,6 +28,7 @@ from pdfminer.high_level import extract_text
 from spacy.language import Language
 from spacy_language_detection import LanguageDetector
 
+# Spacy models (These are downloaded by the following example: python -m spacy download en_core_web_md)
 import en_core_web_md
 import nb_core_news_lg
 
@@ -35,13 +36,11 @@ import nb_core_news_lg
 localtime = time.asctime(time.localtime(time.time()))
 utctime = time.asctime(time.gmtime(time.time()))
 
-# Class to hold all hits (matches for search criteria).
 class Hits:
     """
     | Class variables for hits.
     """
     def __init__(self):
-        self.Hits_li_key = []
         self.Hits_li_email = []
         self.Hits_li_idNum = []
         self.Hits_li_cardNum = []
@@ -49,6 +48,7 @@ class Hits:
         self.Hits_li_names = []
         self.Hits_li_num = ''
         self.Time_used = ""
+        self.Error_li = []
 
 
 # Variable for accessing class Hits
@@ -123,23 +123,24 @@ def hits_to_file():
             file.write('\n'+"Local time of creation: "+localtime+'\n'+"UTC time of creation: "+utctime+'\n')
             file.write('\n' + Hits_.Time_used + '\n')
             file.write('\n'+'EMAIL ADDRESSES:'+'\n')
-            for res in Hits_.Hits_li_email:
+            for res in set(Hits_.Hits_li_email):
                 file.write(res+'\n')
             file.write('\n'+'ID NUMBERS:'+'\n')
-            for res in Hits_.Hits_li_idNum:
+            for res in set(Hits_.Hits_li_idNum):
                 file.write(res + '\n')
             file.write('\n'+'MONETARY CARD NUMBERS:'+'\n')
-            for res in Hits_.Hits_li_cardNum:
+            for res in set(Hits_.Hits_li_cardNum):
                 file.write(res + '\n')
             file.write('\n'+'PERSON NAMES:'+'\n')
-            for res in Hits_.Hits_li_names:
-                file.write(res+'\n')
-            file.write('\n'+'KEYWORD MATCHES:'+'\n')
-            for res in Hits_.Hits_li_key:
+            for res in set(Hits_.Hits_li_names):
                 file.write(res+'\n')
             file.write('\n' + 'GPS COORDINATES:' + '\n')
-            for res in Hits_.Hits_li_gps:
+            for res in set(Hits_.Hits_li_gps):
                 file.write(res + '\n')
+
+        with open(raw_sf[:-3] + '_error_log.txt', 'a') as efile:
+            for err in set(Hits_.Error_li):
+                efile.write('\n' + str(err) + '\n')
 
     T.pack()
     l.pack()
@@ -151,7 +152,7 @@ def hits_to_file():
     win.mainloop()
 
 
-def get_lang_detector(nlp, name):
+def get_lang_detector(nlp, name) -> classmethod:
     """
     | Spacy LanguageDetector class
     """
@@ -160,8 +161,9 @@ def get_lang_detector(nlp, name):
 
 def state_language(text: str) -> str:
     """
-    | Detects language of text strings.
-    | Return appropriate spaCy model.
+    | Use get_lang_detector function to detect language of text strings.
+    | Returns appropriate spaCy model based on the language that is detected.
+    | This program includes support for Norwegian and English.
     """
     nlp_model = spacy.load("en_core_web_sm")
     Language.factory("language_detector", func=get_lang_detector)
@@ -177,50 +179,12 @@ def state_language(text: str) -> str:
     return mod
 
 
-def has_digit(inp_str) -> bool:
-    """
-    | Return True if string has digit.
-    """
-    return any(char.isdigit() for char in inp_str)
-
-
-def only_letter_and_hyphen() -> str:
-    """
-    | Check that string contain letters and hyphen only.
-    | Allow string of length 2-26.
-    """
-    to_match = r'^[æøåÆØÅa-zA-Z\s.-]{2,26}$'
-    return to_match
-
-
-def decrease_false_pos() -> list:
-    """
-    | Attempt at reducing false positives by
-    | specifying patterns for human names.
-    """
-    patterns = [r'^[æøåÆØÅa-zA-Z]+$', r'^[æøåÆØÅa-zA-Z.]+[\s-][æøåÆØÅa-zA-Z.]+$', r'^[æøåÆØÅa-zA-Z]{2,10}[\s-]{1}[æøåÆØÅa-zA-Z.]{1,10}[\s-]{1}[æøåÆØÅa-zA-Z.]{1,10}$']
-    return patterns
-
-
 def convert_to_bytes(x: str) -> bytes:
     """
     | Convert input string to bytes
     """
     x = x.encode('utf-8')
     return x
-
-
-def key_matcher() -> list:
-    """
-    | Keywords for search.
-    | List of keywords is converted to
-    | lower-case before return.
-    """
-    keyword_li = ['Term', 'flexibility', 'ColoRLine', 'STAVanger', 'ONTOP']
-    lower_li = []
-    for i in keyword_li:
-        lower_li.append(i.casefold())
-    return lower_li
 
 
 def re_mail_matcher() -> str:
@@ -250,40 +214,19 @@ def re_cardNum_matcher() -> list:
     return re_cardNum
 
 
-def name_finder(text, path): # INCLUDE PATH FOR MATCHES!
+def name_finder(text, path):
     """
     | Use spaCy to find human names.
     """
-
+    # Spacy model is loaded according to what language is detected by the state_language function.
     nlp = spacy.load(state_language(text))
     doc = nlp(text)
-    #nlp = spacy.load("nb_core_news_sm")
-
-    #name_li = []
-
-    #with open("data/NameList.txt", "r") as f:
-    #    lines = f.readlines()
-    #    for line in lines:
-    #        name_li.append(line)
-
-    #ruler = nlp.add_pipe("entity_ruler", after="ner")
-
-    #name_li = [item.strip() for item in name_li]
-
-    #patterns = []
-    #for name in name_li:
-    #    pattern = {"label": "PERSON", "pattern": name}
-    #    patterns.append(pattern)
-
     per_li = []
-    #ruler.add_patterns(patterns)
-    #doc = nlp(text)
-
+    # Entities labeled as person names are added to the list per_li.
     for ent in doc.ents:
-        if ent.label_ == "PERSON" or ent.label_== 'PER':#and bool(re.search(only_letter_and_hyphen(), str(ent))) == True\
-                #and len(str(ent)) > 3:
+        if ent.label_ == "PERSON" or ent.label_ == 'PER':
             per_li.append(ent)
-
+    # Spacy entities are converted to string and added to class Hits.
     per_li = [str(item) for item in per_li]
     per_li = list(set(per_li))
     per_li = sorted(per_li)
@@ -291,7 +234,7 @@ def name_finder(text, path): # INCLUDE PATH FOR MATCHES!
         Hits_.Hits_li_names.append(i + ', ' + path)
 
 
-# EXPAND TO INCLUDE TIME AND DATE OF CREATION!
+
 def gps_coord(File_Name):
     """
     | Check for gps coordinates in image files.
@@ -338,14 +281,7 @@ def xlsx_reader(File_Name):
                 info_li.append(i)
     text = ' '.join(info_li)
     name_finder(text, pathpath)
-
-    for i in key_matcher():
-        if i in info_li:
-            hit = i + ', ' + pathpath
-            Hits_.Hits_li_key.append(hit)
-        else:
-            continue
-
+    # Find email addresses.
     for i in re_mail_matcher():
         res = re.findall(i, text)
         if res:
@@ -354,7 +290,7 @@ def xlsx_reader(File_Name):
                 Hits_.Hits_li_email.append(hit)
         else:
             continue
-
+    # Find id numbers.
     for i in re_idNum_matcher():
         res = re.findall(i, text)
         if res:
@@ -363,7 +299,7 @@ def xlsx_reader(File_Name):
                 Hits_.Hits_li_idNum.append(hit)
         else:
             continue
-
+    # Find monetary card numbers.
     for i in re_cardNum_matcher():
         res = re.findall(i, text)
         if res:
@@ -375,22 +311,15 @@ def xlsx_reader(File_Name):
 
 
 def pdf_reader(file_name):
+    """
+    | Extract text from pdf files for search/match process.
+    | Use pdfminer to extract text.
+    """
     pathpath = os.path.normpath(file_name)
     pdf = file_name
     Text = extract_text(pdf)
     name_finder(Text, pathpath)
-
-    for i in key_matcher():
-        # Use re to search for items in "matcher"
-        ResSearch = re.findall(i.casefold(), Text.casefold())  # case insensitive match!
-        # If matches are found
-        if ResSearch:
-            # Insert matches into match_li
-            hit = i + ', ' + pathpath
-            Hits_.Hits_li_key.append(hit)
-        else:
-            continue
-
+    # Find email addresses.
     for i in re_mail_matcher():
         ResSearch = re.findall(i.casefold(), Text.casefold())  # make case insensitive
         if ResSearch:
@@ -399,7 +328,7 @@ def pdf_reader(file_name):
                 Hits_.Hits_li_email.append(hit)
         else:
             continue
-
+    # Find id numbers.
     for i in re_idNum_matcher():
         res = re.findall(i, Text)
         if res:
@@ -408,7 +337,7 @@ def pdf_reader(file_name):
                 Hits_.Hits_li_idNum.append(hit)
         else:
             continue
-
+    # Find monetary card numbers.
     for i in re_cardNum_matcher():
         res = re.findall(i, Text)
         if res:
@@ -418,56 +347,51 @@ def pdf_reader(file_name):
         else:
             continue
 
-# Extract hits from files of ftype: application/vnd.openxmlformats-officedocument.wordprocessingml.document
 def docx_reader(File_Name):
     """
     | Extract text from docx files for search/match process.
     """
-    file_name = File_Name
-    pathpath = os.path.normpath(file_name)
-    doc = docx.Document(file_name)
-    Text = []
-    for para in doc.paragraphs:
-        Text.append(para.text)
-    Text = '\n'.join(Text)
-    name_finder(Text, pathpath)
-    Text = Text.casefold()
+    try:
+        file_name = File_Name
+        pathpath = os.path.normpath(file_name)
+        doc = docx.Document(file_name)
 
-    for i in key_matcher():
-        ResSearch = re.findall(i, Text)
-        if ResSearch:
-            # Insert matches into match_li
-            Hits_.Hits_li_key.append(str(i) + ", " + pathpath)
-        else:
-            # print(f'No match for the word: {i}')
-            continue
-
-    for i in re_mail_matcher():
-        res = re.findall(i, Text)
-        if res:
-            for i in res:
-                Hits_.Hits_li_email.append(i + ", " + pathpath)
-        else:
-            continue
-
-    for i in re_idNum_matcher():
-        res = re.findall(i, Text)
-        if res:
-            for i in res:
-                hit = i + ', ' + pathpath
-                Hits_.Hits_li_idNum.append(hit)
-        else:
-            continue
-
-    for i in re_cardNum_matcher():
-        res = re.findall(i, Text)
-        if res:
-            for i in res:
-                hit = i + ', ' + pathpath
-                Hits_.Hits_li_cardNum.append(hit)
-        else:
-            continue
-
+        Text = []
+        for para in doc.paragraphs:
+            Text.append(para.text)
+        Text = '\n'.join(Text)
+        name_finder(Text, pathpath)
+        Text = Text.casefold()
+        # Find email addresses.
+        for i in re_mail_matcher():
+            res = re.findall(i, Text)
+            if res:
+                for i in res:
+                    Hits_.Hits_li_email.append(i + ", " + pathpath)
+            else:
+                continue
+        # Find id numbers.
+        for i in re_idNum_matcher():
+            res = re.findall(i, Text)
+            if res:
+                for i in res:
+                    hit = i + ', ' + pathpath
+                    Hits_.Hits_li_idNum.append(hit)
+            else:
+                continue
+        # Find monetary card numbers.
+        for i in re_cardNum_matcher():
+            res = re.findall(i, Text)
+            if res:
+                for i in res:
+                    hit = i + ', ' + pathpath
+                    Hits_.Hits_li_cardNum.append(hit)
+            else:
+                continue
+    except PermissionError:
+        pass
+    except docx.opc.exceptions.PackageNotFoundError:
+        pass
 
 def db_reader(File_Name):
     """
@@ -485,15 +409,7 @@ def db_reader(File_Name):
                 Text = c.fetchall()
                 Text = str(Text)
                 name_finder(Text, pathpath)
-
-                for i in key_matcher():
-                    ResSearch = re.findall(i, Text)
-                    if ResSearch:
-                        # Insert matches into match_li
-                        Hits_.Hits_li_key.append(str(i) + ", " + pathpath)
-                    else:
-                        continue
-
+                # Find email addresses.
                 for i in re_mail_matcher():
                     res = re.findall(i, Text)
                     if res:
@@ -501,7 +417,7 @@ def db_reader(File_Name):
                             Hits_.Hits_li_email.append(i + ", " + pathpath)
                     else:
                         continue
-
+                # Find id numbers.
                 for i in re_idNum_matcher():
                     res = re.findall(i, Text)
                     if res:
@@ -510,7 +426,7 @@ def db_reader(File_Name):
                             Hits_.Hits_li_idNum.append(hit)
                     else:
                         continue
-
+                # Find monetary card numbers.
                 for i in re_cardNum_matcher():
                     res = re.findall(i, Text)
                     if res:
@@ -536,16 +452,7 @@ def read_file(File_Name):
     f = open(file_name, mode='rb')
     t = f.read()
 
-    # Search for keyword matches in t
-    for i in key_matcher():
-        # Add to match_li if match is found
-        if convert_to_bytes(i) in t.lower():  # case sensitivity!!!
-            Hits_.Hits_li_key.append(str(i) + ", " + pathpath)
-            # print(i + " --- " + pathpath)
-        else:
-            continue
-
-    # Search for regex matches in t
+    # Find email addresses.
     for i in re_mail_matcher():
         i = i.encode()
         # Add to match_li if match is found
@@ -554,25 +461,37 @@ def read_file(File_Name):
         if res:
             # print(res)
             for i in res:
+                try:
+                    i = i.decode('utf-8', 'backslashreplace')
+                except Exception:
+                    pass
                 Hits_.Hits_li_email.append(str(i) + ", " + pathpath)
                 # add_hit_to_li(str(i) + " !!! " + pathpath)
         else:
             continue
-
+    # Find id numbers.
     for i in re_idNum_matcher():
         i = i.encode()
         res = re.findall(i, t, re.IGNORECASE)
 
         if res:
             for i in res:
+                try:
+                    i = i.decode('utf-8', 'backslashreplace')
+                except Exception:
+                    pass
                 hit = str(i) + ', ' + pathpath
                 Hits_.Hits_li_idNum.append(hit)
-
+    # Find monetary card numbers.
     for i in re_cardNum_matcher():
         i = i.encode()
         res = re.findall(i, t, re.IGNORECASE)
         if res:
             for i in res:
+                try:
+                    i = i.decode('utf-8', 'backslashreplace')
+                except Exception:
+                    pass
                 hit = i.decode() + ', ' + pathpath
                 Hits_.Hits_li_cardNum.append(hit)
 
@@ -585,36 +504,66 @@ p1 = threading.Thread(target=progress_widget) # Progress bar widget.
 def walker():
     """
     | Walks directories and subdirectories to execute search.
+    | Identify file type and extract text with appropriate function.
     """
     directory = select_dir() # see select_dir() function.
     p1.daemon = True  # Allows python to exit even if thread is still running.
     p1.start()  # Starting Progress bar.
 
-
-    #count = 0
     for subdir, dirs, files in os.walk(directory):
         for file in files:
             # File-path from os
             paths = os.path.join(subdir, file)
-            ftype = magic.from_file(paths, mime=True)
-
-            # print(paths, ftype)
+            try:
+                ftype = magic.from_file(paths, mime=True)
+            except Exception as e:
+                Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                pass
+            # PDF files.
             if "pdf" in ftype:
-                pdf_reader(paths)
+                try:
+                    pdf_reader(paths)
+                except Exception as e:
+                    Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                    pass
+            # DOC and DOCX files.
             elif ftype == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                docx_reader(paths)
+                try:
+                    docx_reader(paths)
+                except Exception as e:
+                    Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                    pass
+                except docx.opc.exceptions.PackageNotFoundError:
+                    pass
+            # XLSX files.
             elif ftype == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-                xlsx_reader(paths)
+                try:
+                    xlsx_reader(paths)
+                except Exception as e:
+                    Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                    pass
+            # PNG, JPG, JPEG files.
             elif ftype[:5] == 'image':
-                gps_coord(paths)
+                try:
+                    gps_coord(paths)
+                except Exception as e:
+                    Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                    pass
+            # SQLITE DATABASE files.
             elif ftype == 'application/x-sqlite3':
-                db_reader(paths)
+                try:
+                    db_reader(paths)
+                except Exception as e:
+                    Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                    pass
 
+            # IF NONE OF THE TYPES ABOVE ARE IDENTIFIED, A GENERAL FILE OPENER IS USED (read_file function).
             else:
-                read_file(paths)
-
-    #file_num = count
-    #Hits_.Hits_li_num = file_num
+                try:
+                    read_file(paths)
+                except Exception as e:
+                    Hits_.Error_li.append(str(e) + ', ' + str(paths))
+                    pass
 
 
 p2 = threading.Thread(target=walker) # Directory walker (main function).
@@ -625,61 +574,22 @@ def main():
     p2.join() # Allows main function to finish before continuing to "exit_event.set()".
     exit_event.set() # Sets exit_event to True in attempt at breaking loop of Progress bar.
     win.withdraw() # Hides progress bar widget window.
+    global stop
+    stop = time.time()
     hits_to_file() # Select path and save output.
 
 
 # Starts script/program
 if __name__ == '__main__':
-    main()
+    try:
+        start = time.time()
+        main()
 
-'''
-start = time.time()
-spinner = yaspin(text='Processing', color="yellow")
-spinner.start()
-#spinner.stop()
-print('Process Finished')
-stop = time.time()
-process_time = round(stop - start, 2)
-print("Number of files searched:", Hits_.Hits_li_num)
-#print("Number of Hits: ", len(set(Hits_.Hits_li_email))
-print()
-print("Hit List: ")
-print()
-print('Keywords:')
-print()
-for hit in set(Hits_.Hits_li_key):
-    print(hit)
-print()
-print('Emails:')
-for hit in set(Hits_.Hits_li_email):
-    print(hit)
-print()
-print('ID Numbers:')
-for hit in set(Hits_.Hits_li_idNum):
-    print(hit)
-print()
-print("Card Numbers:")
-for hit in set(Hits_.Hits_li_cardNum):
-    print(hit)
-print()
-print("GPS Coordinates from Image files:")
-for hit in Hits_.Hits_li_gps:
-    print(hit)
-print()
-print("Names")
-print(len(Hits_.Hits_li_names))
-for hit in Hits_.Hits_li_names:
-    print(hit)
-print()
-# Print time used in seconds or minutes
-if process_time > 60:
-    process_time /= 60
-    print("Minutes used: ", process_time)
-else:
-    print("Seconds used: ", process_time)
-print("Local time of creation: ", localtime)
-print("UTC time of creation: ", utctime)
-'''
+        print(round(stop - start, 2))
+    except Exception as e:
+        Hits_.Error_li.append(str(e))
+        pass
+
 
 
 
