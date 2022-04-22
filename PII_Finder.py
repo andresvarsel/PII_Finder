@@ -519,6 +519,7 @@ def walker():
             except Exception as e:
                 Hits_.Error_li.append(str(e) + ', ' + str(paths))
                 pass
+
             # PDF files.
             if "pdf" in ftype:
                 try:
@@ -526,6 +527,7 @@ def walker():
                 except Exception as e:
                     Hits_.Error_li.append(str(e) + ', ' + str(paths))
                     pass
+            
             # DOC and DOCX files.
             elif ftype == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
                 try:
